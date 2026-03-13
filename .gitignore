@@ -1,3 +1,30 @@
-.idea/
-*.pyc
+# Virtual environment
+.venv/
+venv/
+env/
+ENV/
+
+# Python
 __pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.pyc
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Backups (from CatWalker)
+.local/
+
+# Test output
+console-out.txt

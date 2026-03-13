@@ -3,15 +3,17 @@
 CatWalker - Automatic application categorization for Walker using LLM
 """
 
-import sys
 import argparse
 import logging
-from typing import Optional
+import sys
 
+from categorizer import AppCategorizer
+from categorizer import GEMINI_AVAILABLE
+from config import DEFAULT_CATEGORIES, REVERSE_CATEGORY_MAPPING
+from config import GEMINI_API_KEY
 from parser import DesktopFileParser
-from categorizer import AppCategorizer, GEMINI_AVAILABLE
 from writer import DesktopFileWriter
-from config import GEMINI_API_KEY, DEFAULT_CATEGORIES
+from menu_generator import MenuGenerator, MENUS_DIR
 
 logging.basicConfig(
     level=logging.INFO,
@@ -37,7 +39,6 @@ def cmd_scan(args):
         entries = parser.get_by_category(args.category)
         print(f"Applications in '{args.category}': {len(entries)}\n")
 
-    # Display entries
     for i, (filename, entry) in enumerate(entries.items(), 1):
         if args.limit and i > args.limit:
             print(f"\n... and {len(entries) - args.limit} more")
@@ -57,28 +58,17 @@ def cmd_scan(args):
 def cmd_categorize(args):
     """Categorize applications using LLM"""
     if not GEMINI_AVAILABLE:
-        logger.error(
-            "google-generativeai not installed. "
-            "Install with: pip install google-generativeai"
-        )
+        logger.error("google-genai not installed. Install with: pip install google-genai")
         return 1
 
     if not GEMINI_API_KEY:
-        logger.error(
-            "GEMINI_API_KEY not set. "
-            "Set it with: export GEMINI_API_KEY='your-api-key'"
-        )
+        logger.error("GEMINI_API_KEY not set. Set it with: export GEMINI_API_KEY='your-api-key'")
         return 1
 
-    # Parse applications
     parser = DesktopFileParser()
     entries = parser.scan_all()
 
-    # Filter entries to categorize
-    if args.uncategorized:
-        entries = parser.get_uncategorized()
-        logger.info(f"Categorizing {len(entries)} uncategorized applications")
-    elif args.recategorize:
+    if args.recategorize:
         logger.info(f"Re-categorizing all {len(entries)} applications")
     else:
         entries = parser.get_uncategorized()
@@ -88,12 +78,10 @@ def cmd_categorize(args):
         logger.info("No applications to categorize")
         return 0
 
-    # Limit for testing
     if args.limit:
         entries = dict(list(entries.items())[:args.limit])
         logger.info(f"Limited to {args.limit} applications for testing")
 
-    # Categorize using LLM
     logger.info("Sending to Gemini API...")
     categorizer = AppCategorizer()
     categorization = categorizer.categorize(entries, batch_size=args.batch_size)
@@ -110,10 +98,10 @@ def cmd_categorize(args):
     for filename, category in categorization.items():
         entry = entries[filename]
         old_cats = ', '.join(entry.categories) if entry.categories else 'None'
-        print(f"" {entry.name}")
-        print(f"  {old_cats} � {category}")
+        print(f"{entry.name}")
+        print(f"  {old_cats} → {category}")
 
-    # Apply changes
+    # Apply .desktop file changes
     writer = DesktopFileWriter(dry_run=not args.apply)
 
     print(f"\n{'=' * 70}")
@@ -130,9 +118,8 @@ def cmd_categorize(args):
     print(f"{'=' * 70}\n")
 
     results = writer.apply_categorization(entries, categorization)
-
-    # Summary
     success_count = sum(1 for v in results.values() if v)
+
     print(f"\n{'=' * 70}")
     print(f"Complete: {success_count}/{len(results)} files processed")
     if args.apply:
@@ -144,6 +131,61 @@ def cmd_categorize(args):
     return 0
 
 
+def cmd_menus(args):
+    """Generate Elephant menu files from categorized apps"""
+    if args.clean:
+        gen = MenuGenerator()
+        gen.cleanup()
+        print("✓ Removed CatWalker menu files")
+        print("Restart Walker: killall walker && walker &")
+        return 0
+
+    # We need all categorized apps - scan and use existing categories
+    parser = DesktopFileParser()
+    entries = parser.scan_all()
+
+    # Build categorization from existing .desktop categories
+    categorized = {}
+    for filename, entry in entries.items():
+        if not entry.categories:
+            continue
+        # Map freedesktop categories back to our categories
+        cat = _map_desktop_category(entry.categories)
+        if cat:
+            categorized[filename] = cat
+
+    if not categorized:
+        logger.error("No categorized apps found. Run 'categorize --apply' first.")
+        return 1
+
+    print(f"\nFound {len(categorized)} categorized applications")
+
+    gen = MenuGenerator()
+
+    if args.dry_run:
+        gen.generate(categorized, entries, dry_run=True)
+        print("\nUse without --dry-run to actually generate files")
+        return 0
+
+    gen.generate(categorized, entries)
+
+    print(f"\n{'=' * 70}")
+    print(f"✓ Menu files generated in {MENUS_DIR}")
+    print("✓ Walker configuration updated")
+    print("\nRestart Walker to see changes:")
+    print("  killall walker && walker &")
+    print(f"{'=' * 70}")
+    return 0
+
+
+def _map_desktop_category(categories: list) -> str:
+    """Map freedesktop.org categories to CatWalker categories"""
+    for cat in categories:
+        if cat in REVERSE_CATEGORY_MAPPING:
+            return REVERSE_CATEGORY_MAPPING[cat]
+    return None
+
+
 def cmd_rollback(args):
     """Rollback changes"""
     writer = DesktopFileWriter()
@@ -153,7 +195,6 @@ def cmd_rollback(args):
         if not backups:
             print("No backups found")
             return 0
-
         print("\nAvailable backups:")
         for i, backup in enumerate(backups, 1):
             print(f"  {i}. {backup}")
@@ -162,24 +203,20 @@ def cmd_rollback(args):
     if args.timestamp:
         success = writer.rollback(args.timestamp)
     else:
-        # Use latest
         backups = writer.list_backups()
         if not backups:
             logger.error("No backups found")
             return 1
-
         print(f"Rolling back to latest backup: {backups[0]}")
         confirm = input("Proceed? [y/N] ")
         if confirm.lower() != 'y':
             print("Cancelled")
             return 0
-
         success = writer.rollback()
 
     if success:
-        print("\n Rollback complete")
-        print("Restart Walker to see changes:")
-        print("  killall walker && walker &")
+        print("\n✓ Rollback complete")
+        print("Restart Walker: killall walker && walker &")
         return 0
     else:
         logger.error("Rollback failed")
@@ -194,91 +231,112 @@ def cmd_categories(args):
     print()
 
 
+def generate_bash_completion():
+    """Generate bash completion script for catwalker"""
+    completion = '''# bash completion for catwalker
+# Source this file: source <(catwalker --generate-completions)
+
+_catwalker_completion() {
+    local cur prev words cword
+    COMPREPLY=()
+    cur="${COMP_WORDS[COMP_CWORD]}"
+    prev="${COMP_WORDS[COMP_CWORD-1]}"
+    words=("${COMP_WORDS[@]}")
+    cword=$COMP_CWORD
+
+    local commands="scan categorize menus rollback categories"
+
+    # Show commands if no command yet
+    if [[ $COMP_CWORD -eq 1 ]]; then
+        COMPREPLY=( $(compgen -W "$commands" -- "$cur") )
+        return 0
+    fi
+
+    # Handle command-specific completions
+    case "${words[1]}" in
+        scan)
+            local scan_opts="-u --uncategorized -c --category -l --limit -h --help"
+            COMPREPLY=( $(compgen -W "$scan_opts" -- "$cur") )
+            ;;
+        categorize)
+            local cat_opts="-a --apply -r --recategorize -l --limit -b --batch-size -h --help"
+            COMPREPLY=( $(compgen -W "$cat_opts" -- "$cur") )
+            ;;
+        menus)
+            local menu_opts="--dry-run --clean -h --help"
+            COMPREPLY=( $(compgen -W "$menu_opts" -- "$cur") )
+            ;;
+        rollback)
+            local rollback_opts="-l --list -t --timestamp -h --help"
+            COMPREPLY=( $(compgen -W "$rollback_opts" -- "$cur") )
+            ;;
+        categories)
+            COMPREPLY=( $(compgen -W "-h --help" -- "$cur") )
+            ;;
+    esac
+
+    return 0
+}
+
+complete -o bashdefault -o default -o nospace -F _catwalker_completion catwalker
+'''
+    return completion
+
+
 def main():
     parser = argparse.ArgumentParser(
         description='CatWalker - Automatic application categorization using LLM',
         formatter_class=argparse.RawDescriptionHelpFormatter,
+        add_help=False,
         epilog="""
 Examples:
   %(prog)s scan                          # List all applications
   %(prog)s scan --uncategorized          # List uncategorized apps
-  %(prog)s categorize --dry-run          # Preview categorization
-  %(prog)s categorize --apply            # Apply categorization
+  %(prog)s categorize                    # Categorize (dry-run)
+  %(prog)s categorize --apply            # Apply to .desktop files
   %(prog)s categorize --limit 10         # Test with 10 apps
-  %(prog)s rollback                      # Rollback to latest backup
-  %(prog)s rollback --list               # List available backups
-
-Setup:
-  1. Get Gemini API key: https://aistudio.google.com/app/apikey
-  2. Export key: export GEMINI_API_KEY='your-key'
-  3. Install deps: pip install google-generativeai
+  %(prog)s menus                         # Generate Walker menu files
+  %(prog)s menus --dry-run               # Preview menu generation
+  %(prog)s menus --clean                 # Remove generated menus
+  %(prog)s rollback                      # Rollback last changes
         """
     )
 
+    # Handle --generate-completions before subparsers
+    if '--generate-completions' in sys.argv:
+        print(generate_bash_completion())
+        return 0
+
     subparsers = parser.add_subparsers(dest='command', help='Command to execute')
 
-    # Scan command
+    # Scan
     scan_parser = subparsers.add_parser('scan', help='Scan and list applications')
-    scan_parser.add_argument(
-        '--uncategorized', '-u',
-        action='store_true',
-        help='Show only uncategorized applications'
-    )
-    scan_parser.add_argument(
-        '--category', '-c',
-        type=str,
-        help='Filter by category'
-    )
-    scan_parser.add_argument(
-        '--limit', '-l',
-        type=int,
-        help='Limit number of results'
-    )
+    scan_parser.add_argument('--uncategorized', '-u', action='store_true')
+    scan_parser.add_argument('--category', '-c', type=str)
+    scan_parser.add_argument('--limit', '-l', type=int)
 
-    # Categorize command
-    cat_parser = subparsers.add_parser('categorize', help='Categorize applications')
-    cat_parser.add_argument(
-        '--apply', '-a',
-        action='store_true',
-        help='Apply changes (default is dry-run)'
-    )
-    cat_parser.add_argument(
-        '--uncategorized', '-u',
-        action='store_true',
-        help='Categorize only uncategorized apps'
-    )
-    cat_parser.add_argument(
-        '--recategorize', '-r',
-        action='store_true',
-        help='Re-categorize all applications'
-    )
-    cat_parser.add_argument(
-        '--limit', '-l',
-        type=int,
-        help='Limit number of apps (for testing)'
-    )
-    cat_parser.add_argument(
-        '--batch-size', '-b',
-        type=int,
-        default=50,
-        help='Batch size for API calls (default: 50)'
-    )
+    # Categorize
+    cat_parser = subparsers.add_parser('categorize', help='Categorize applications via LLM')
+    cat_parser.add_argument('--apply', '-a', action='store_true', help='Apply changes')
+    cat_parser.add_argument('--recategorize', '-r', action='store_true')
+    cat_parser.add_argument('--limit', '-l', type=int)
+    cat_parser.add_argument('--batch-size', '-b', type=int, default=50)
 
-    # Rollback command
+    # Menus
+    menu_parser = subparsers.add_parser('menus', help='Generate Elephant menu files for Walker')
+    menu_parser.add_argument('--dry-run', action='store_true', help='Preview without writing')
+    menu_parser.add_argument('--clean', action='store_true', help='Remove generated menu files')
+
+    # Rollback
     rollback_parser = subparsers.add_parser('rollback', help='Rollback changes')
-    rollback_parser.add_argument(
-        '--list', '-l',
-        action='store_true',
-        help='List available backups'
-    )
-    rollback_parser.add_argument(
-        '--timestamp', '-t',
-        type=str,
-        help='Backup timestamp to restore'
-    )
+    rollback_parser.add_argument('--list', '-l', action='store_true')
+    rollback_parser.add_argument('--timestamp', '-t', type=str)
 
-    # Categories command
+    # Categories
     subparsers.add_parser('categories', help='List available categories')
+
+    # Add help manually to avoid conflict with --generate-completions
+    parser.add_argument('-h', '--help', action='help', help='Show this help message')
 
     args = parser.parse_args()
 
@@ -286,10 +344,10 @@ Setup:
         parser.print_help()
         return 0
 
-    # Route to command handlers
     commands = {
         'scan': cmd_scan,
         'categorize': cmd_categorize,
+        'menus': cmd_menus,
         'rollback': cmd_rollback,
         'categories': cmd_categories,
     }

@@ -1,0 +1,9 @@
+#!/bin/bash
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Load user environment (API keys etc.)
+[ -f ~/.bashrc ] && source ~/.bashrc 2>/dev/null
+[ -f ~/.bash_profile ] && source ~/.bash_profile 2>/dev/null
+
+source "$SCRIPT_DIR/.venv/bin/activate"
+python "$SCRIPT_DIR/main.py" "$@"

@@ -1,9 +1,9 @@
 import shutil
 import logging
+import re
 from pathlib import Path
 from typing import Dict, List
 from datetime import datetime
-import configparser
 
 from config import (
     SYSTEM_APPS_DIR,
@@ -26,13 +26,11 @@ class DesktopFileWriter:
         self.modified_files: List[str] = []
 
     def _get_backup_path(self, filename: str) -> Path:
-        """Get backup path for a file"""
         backup_subdir = BACKUP_DIR / self.backup_timestamp
         backup_subdir.mkdir(parents=True, exist_ok=True)
         return backup_subdir / filename
 
     def _backup_file(self, filepath: Path) -> bool:
-        """Create backup of a file"""
         try:
             backup_path = self._get_backup_path(filepath.name)
             shutil.copy2(filepath, backup_path)
@@ -43,17 +41,9 @@ class DesktopFileWriter:
             return False
 
     def _ensure_user_copy(self, entry: DesktopEntry) -> Path:
-        """
-        Ensure .desktop file exists in user directory
-        Copy from system if needed
-        """
         user_file = USER_APPS_DIR / entry.filename
-
-        # If already in user dir, just return it
         if user_file.exists():
             return user_file
-
-        # Copy from system to user directory
         if entry.filepath.exists():
             logger.info(f"Copying {entry.filename} to user directory")
             shutil.copy2(entry.filepath, user_file)
@@ -63,25 +53,48 @@ class DesktopFileWriter:
 
     def _update_categories(self, filepath: Path, categories: List[str]) -> bool:
         """
-        Update Categories field in .desktop file
+        Update Categories= field using direct text manipulation
+        to avoid configparser lowercasing all keys.
+        Also fixes capitalization of standard keys.
         """
         try:
-            # Read file
-            config = configparser.ConfigParser(strict=False, interpolation=None)
-            config.read(filepath, encoding='utf-8')
+            content = filepath.read_text(encoding='utf-8')
+            
+            # Standard keys to capitalize
+            standard_keys = [
+                'Name', 'Exec', 'Icon', 'Type', 'Comment', 'GenericName',
+                'Categories', 'Terminal', 'NoDisplay', 'Keywords',
+                'StartupNotify', 'StartupWMClass', 'MimeType', 'Path',
+                'Actions', 'OnlyShowIn', 'NotShowIn', 'Hidden', 'TryExec'
+            ]
+            
+            new_content = content
+            for key in standard_keys:
+                # Replace lowercase key at start of line
+                new_content = re.sub(
+                    f'(?im)^{key}=',
+                    f'{key}=',
+                    new_content
+                )
 
-            if 'Desktop Entry' not in config:
-                logger.error(f"No [Desktop Entry] section in {filepath}")
-                return False
-
-            # Update categories
             categories_str = ";".join(categories) + ";"
-            config['Desktop Entry']['Categories'] = categories_str
 
-            # Write back
-            with open(filepath, 'w', encoding='utf-8') as f:
-                config.write(f, space_around_delimiters=False)
+            # Replace existing Categories= line
+            new_content, count = re.subn(
+                r'(?im)^Categories=.*$',
+                f'Categories={categories_str}',
+                new_content
+            )
 
+            # If no Categories= line existed, add it after [Desktop Entry]
+            if count == 0:
+                new_content = re.sub(
+                    r'(\[Desktop Entry\])',
+                    f'\\1\nCategories={categories_str}',
+                    new_content
+                )
+
+            filepath.write_text(new_content, encoding='utf-8')
             logger.debug(f"Updated categories in {filepath.name}")
             return True
 
@@ -94,16 +107,6 @@ class DesktopFileWriter:
         entries: Dict[str, DesktopEntry],
         categorization: Dict[str, str]
     ) -> Dict[str, bool]:
-        """
-        Apply categorization to desktop files
-
-        Args:
-            entries: Dictionary of desktop entries
-            categorization: Dictionary mapping filename to category
-
-        Returns:
-            Dictionary of filename -> success status
-        """
         results = {}
 
         for filename, category in categorization.items():
@@ -115,9 +118,7 @@ class DesktopFileWriter:
             entry = entries[filename]
 
             try:
-                # Map category to freedesktop.org standard
                 desktop_category = CATEGORY_MAPPINGS.get(category, category)
-
                 logger.info(f"Processing {entry.name} ({filename}) -> {category}")
 
                 if self.dry_run:
@@ -125,22 +126,15 @@ class DesktopFileWriter:
                     results[filename] = True
                     continue
 
-                # Ensure file is in user directory
                 user_file = self._ensure_user_copy(entry)
 
-                # Backup existing file
                 if user_file.exists():
                     self._backup_file(user_file)
 
-                # Update categories
-                # Keep some existing categories that make sense
-                new_categories = [desktop_category]
-
-                # Preserve important existing categories
-                preserve_cats = ['Settings', 'Qt', 'GTK', 'GNOME', 'KDE']
-                for cat in entry.categories:
-                    if cat in preserve_cats and cat not in new_categories:
-                        new_categories.append(cat)
+                # Keep all existing categories, just add the new one if not present
+                new_categories = list(entry.categories)
+                if desktop_category not in new_categories:
+                    new_categories.insert(0, desktop_category)
 
                 success = self._update_categories(user_file, new_categories)
 
@@ -156,7 +150,6 @@ class DesktopFileWriter:
                 logger.error(f"Error processing {filename}: {e}")
                 results[filename] = False
 
-        # Summary
         success_count = sum(1 for v in results.values() if v)
         logger.info(
             f"\nCompleted: {success_count}/{len(results)} files "
@@ -166,18 +159,10 @@ class DesktopFileWriter:
         return results
 
     def rollback(self, backup_timestamp: str = None) -> bool:
-        """
-        Rollback changes from a backup
-
-        Args:
-            backup_timestamp: Timestamp of backup to restore (default: latest)
-        """
         try:
-            # Find backup directory
             if backup_timestamp:
                 backup_dir = BACKUP_DIR / backup_timestamp
             else:
-                # Use latest backup
                 backups = sorted(BACKUP_DIR.glob("*"), reverse=True)
                 if not backups:
                     logger.error("No backups found")
@@ -189,8 +174,6 @@ class DesktopFileWriter:
                 return False
 
             logger.info(f"Rolling back from {backup_dir.name}")
-
-            # Restore files
             restored = 0
             for backup_file in backup_dir.glob("*.desktop"):
                 target_file = USER_APPS_DIR / backup_file.name
@@ -206,15 +189,5 @@ class DesktopFileWriter:
             return False
 
     def list_backups(self) -> List[str]:
-        """List available backups"""
         backups = sorted(BACKUP_DIR.glob("*"), reverse=True)
         return [b.name for b in backups if b.is_dir()]
-
-
-def main():
-    """Test writer"""
-    print("Writer module - use via main.py")
-
-
-if __name__ == "__main__":
-    main()

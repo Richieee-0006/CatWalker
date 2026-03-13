@@ -1,207 +1,187 @@
 # CatWalker 🐱
 
-Automatická kategorizace Linuxových aplikací pro Walker pomocí Gemini Flash LLM.
+Automatická kategorizace Linuxových aplikací pro Walker/Elephant pomocí LLM.
 
 ## Features
 
-- 🤖 **Inteligentní kategorizace** - Používá Gemini Flash k chytré kategorizaci aplikací
-- 🔒 **Bezpečné** - Nikdy nemodifikuje systémové soubory, vše v `~/.local/share/applications/`
-- 💾 **Automatický backup** - Před každou změnou vytvoří zálohu
-- 🔄 **Rollback** - Snadné vrácení změn
-- 🎯 **Dry-run mode** - Preview před aplikací změn
-- ⚡ **Batch processing** - Efektivní zpracování velkého množství aplikací
+- 🤖 **Inteligentní kategorizace** - Gemma 3 27B přes Google AI API
+- 🔒 **Bezpečné** - nikdy nemodifikuje systémové soubory, vše v `~/.local/share/applications/`
+- 💾 **Automatický backup** - před každou změnou vytvoří zálohu
+- 🔄 **Rollback** - snadné vrácení změn
+- 🎯 **Dry-run mode** - preview před aplikací změn
+- 📂 **Walker menu generátor** - vytvoří kategorie jako složky v Walkeru
 
 ## Instalace
 
+### 1. Základní setup
+
 ```bash
-# 1. Clone repo
 cd ~/Work
 git clone <repo-url> CatWalker
 cd CatWalker
 
-# 2. Nainstaluj závislosti
+# Virtual environment (Arch Linux)
+python -m venv .venv
+
+# Závislosti
 pip install -r requirements.txt
 
-# 3. Získej Gemini API klíč
+# API klíč (Google AI Studio - free tier)
 # https://aistudio.google.com/app/apikey
-
-# 4. Nastav API klíč
-export GEMINI_API_KEY='your-api-key-here'
-
-# Přidej do ~/.bashrc nebo ~/.zshrc pro permanentní nastavení:
 echo "export GEMINI_API_KEY='your-api-key-here'" >> ~/.bashrc
+source ~/.bashrc
+```
+
+### 2. System-wide Setup (Optional)
+
+Uděláte `catwalker` dostupný z jakéhokoliv adresáře:
+
+```bash
+# Symlink wrapper (already done if you ran install script)
+# ~/.local/bin/catwalker je již vytvořen automaticky
+
+# Ověřte, že ~/.local/bin je v PATH (mělo by být)
+echo $PATH | grep ".local/bin"
+
+# Pokud ne, přidejte do ~/.bashrc:
+# export PATH="$HOME/.local/bin:$PATH"
+```
+
+### 3. Shell Auto-completion
+
+#### Bash
+
+```bash
+# Auto-completion se vytvořená automaticky v:
+# ~/.local/share/bash-completion/completions/catwalker
+
+# Vyzkoušejte:
+catwalker <TAB>  # Mělo by se zobrazit seznam příkazů
+catwalker categorize <TAB>  # Mělo by se zobrazit seznam příznaků
+```
+
+#### Zsh
+
+Zsh auto-completion je nainstalován v:
+```
+~/.local/share/zsh/site-functions/_catwalker
+```
+
+Ověřte si, že `~/.local/share/zsh/site-functions` je v `$fpath`:
+
+```bash
+# Přidejte do ~/.zshrc pokud chybí:
+# export fpath=(~/.local/share/zsh/site-functions $fpath)
 ```
 
 ## Použití
 
-### 1. Zobrazit aplikace
+Wrapper `catwalker` automaticky aktivuje `.venv`, takže můžete zavolat odkudkoliv:
 
 ```bash
-# Všechny aplikace
-./main.py scan
-
-# Jen nekategorizované
-./main.py scan --uncategorized
-
-# Limitovat výstup
-./main.py scan --limit 20
-
-# Filtrovat podle kategorie
-./main.py scan --category Network
+catwalker --help          # Nápověda
+catwalker categories      # Seznam kategorií
 ```
 
-### 2. Kategorizovat aplikace
+### 1. Kategorizovat aplikace
 
 ```bash
-# Dry-run (preview bez změn)
-./main.py categorize
+# Preview (dry-run)
+catwalker categorize
 
-# Aplikovat změny
-./main.py categorize --apply
+# Aplikovat na všechny nekategorizované
+catwalker categorize --apply
 
-# Rekategorizovat všechny aplikace
-./main.py categorize --recategorize --apply
+# Rekategorizovat vše znovu
+catwalker categorize --recategorize --apply
 
-# Testovat na 10 aplikacích
-./main.py categorize --limit 10 --apply
+# Test na malém vzorku
+catwalker categorize --limit 10 --apply
 ```
 
-### 3. Rollback změn
+### 2. Vygenerovat Walker menus
 
 ```bash
-# Rollback na poslední backup
-./main.py rollback
+# Vygeneruje ~/.config/elephant/menus/catwalker_*.toml
+# A automaticky přidá do ~/.config/walker/config.toml: [providers] empty = ["menus:catwalker_apps"]
+./catwalker menus
 
-# Zobrazit dostupné backupy
-./main.py rollback --list
+# Preview
+./catwalker menus --dry-run
 
-# Rollback na konkrétní backup
-./main.py rollback --timestamp 20260221_143022
+# Smazat vygenerované soubory
+./catwalker menus --clean
 ```
 
-### 4. Zobrazit kategorie
+Restart: `systemctl --user restart elephant && killall walker; sleep 1 && walker &`
+
+### 3. Ostatní příkazy
 
 ```bash
-./main.py categories
+./catwalker scan                    # Zobraz všechny aplikace
+./catwalker scan --uncategorized    # Jen nekategorizované
+./catwalker scan --category Network # Filtr podle kategorie
+./catwalker rollback                # Vrať poslední změny
+./catwalker rollback --list         # Zobraz dostupné zálohy
+./catwalker categories              # Zobraz dostupné kategorie
 ```
 
-## Jak to funguje
-
-### Kategorie
-
-Aplikace jsou automaticky tříděny do těchto kategorií:
-
-- **Development** - IDE, editory, dev tools
-- **System** - Systémové utility, monitoring
-- **Media** - Audio, video, přehrávače
-- **Office** - Dokumenty, tabulky, prezentace
-- **Games** - Hry
-- **Internet** - Browsery, chat, email
-- **Graphics** - Grafické editory, prohlížeče
-- **Utility** - Obecné utility
-- **Settings** - Nastavení systému
-- **Education** - Vzdělávací aplikace
-
-### Architektura
-
-1. **Parser** (`parser.py`) - Parsuje `.desktop` soubory z `/usr/share/applications/` a `~/.local/share/applications/`
-
-2. **Categorizer** (`categorizer.py`) - Posílá aplikace Gemini Flash API pro kategorizaci
-   - Extrahuje název, popis a další kontext
-   - Gemini vrací strukturovaný JSON s kategoriemi
-   - Validuje výstupy
-
-3. **Writer** (`writer.py`) - Bezpečně aplikuje změny
-   - Zkopíruje soubory do `~/.local/share/applications/`
-   - Vytvoří backup před změnou
-   - Modifikuje pouze `Categories=` pole
-   - Zachová ostatní metadata
-
-### Bezpečnost
-
-- ✅ Nikdy nemodifikuje `/usr/share/applications/` (systémové soubory)
-- ✅ Všechny změny jdou do `~/.local/share/applications/` (má přednost)
-- ✅ Automatický backup před každou změnou
-- ✅ Snadný rollback
-- ✅ Dry-run mode pro preview
-
-## Příklad workflow
-
-```bash
-# 1. Zjistit kolik máme nekategorizovaných aplikací
-./main.py scan --uncategorized
-
-# 2. Preview kategorizace na 10 aplikacích
-./main.py categorize --limit 10
-
-# 3. Vypadá dobře? Aplikovat!
-./main.py categorize --limit 10 --apply
-
-# 4. Restartovat Walker
-killall walker && walker &
-
-# 5. Nelíbí se? Rollback!
-./main.py rollback
-```
-
-## Konfigurace
-
-Úpravy v `config.py`:
+## Konfigurace (`config.py`)
 
 ```python
-# Vlastní kategorie
+MODEL_NAME = "gemma-3-27b-it"   # Gemma 3 - lepší rate limity než Gemini Flash
+
 DEFAULT_CATEGORIES = [
-    "Development",
-    "MyCustomCategory",
-    # ...
+    "Development", "System", "Media", "Office",
+    "Games", "Internet", "Graphics", "Utility",
+    "Settings", "Education", "Browser",
 ]
+```
 
-# Jiný model
-MODEL_NAME = "gemini-1.5-flash"
+## Kategorie
 
-# Batch size pro API
-# (kolik aplikací poslat najednou)
-batch_size = 50  # default
+| Kategorie | Aplikace |
+|-----------|----------|
+| Development | IDE, editory, dev tools |
+| System | Terminály, monitoring, správa |
+| Media | Audio, video, přehrávače, DAW pluginy |
+| Office | Dokumenty, tabulky, prezentace |
+| Games | Hry, game launchery |
+| Internet | Chat, email, sociální sítě |
+| Browser | Webové prohlížeče |
+| Graphics | Grafické editory, prohlížeče obrázků |
+| Utility | Obecné nástroje |
+| Settings | Nastavení systému |
+| Education | Vzdělávací aplikace |
+
+## Architektura
+
+```
+parser.py          # Parsuje .desktop soubory
+categorizer.py     # Volá Google AI API (requests, bez SDK)
+writer.py          # Bezpečně upravuje Categories= (regex, ne configparser)
+menu_generator.py  # Generuje Elephant TOML menu soubory
+main.py            # CLI interface
+config.py          # Konfigurace
+catwalker          # Wrapper script (.venv + main.py)
 ```
 
 ## Troubleshooting
 
+### Elephant není připojený
+```bash
+systemctl --user start elephant
+systemctl --user status elephant
+```
+
 ### API klíč nefunguje
 ```bash
-# Zkontroluj že je nastaven
-echo $GEMINI_API_KEY
-
-# Nastav znovu
-export GEMINI_API_KEY='your-key'
+echo $GEMINI_API_KEY   # Zkontroluj že je nastaven
 ```
 
-### Walker neukazuje změny
-```bash
-# Restart Walkera
-killall walker && walker &
-
-# Nebo restart Hyprlandu
-hyprctl reload
-```
-
-### Chybí závislosti
-```bash
-pip install -r requirements.txt
-```
-
-## Free tier limity
-
-Gemini Flash free tier:
-- ✅ 15 requests/min
-- ✅ 1500 requests/day
-- ✅ 1 milion tokens/min
-
-Pro kategorizaci desítek/stovek aplikací je to víc než dost! 🚀
+### .desktop soubory mají lowercase klíče
+Starý problém s configparser — writer.py nyní používá regex a zachovává originální formátování.
 
 ## License
 
-MIT
-
-## Autor
-
-richieee @ 2026
+MIT — richieee @ 2026
