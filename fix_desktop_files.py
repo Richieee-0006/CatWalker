@@ -8,7 +8,6 @@ from config import USER_APPS_DIR
 logging.basicConfig(level = logging.INFO, format = '%(levelname)s: %(message)s')
 logger = logging.getLogger(__name__)
 
-
 def fix_file(filepath: Path) -> bool:
 	"""Standardize .desktop file keys to be case-sensitive and correctly capitalized."""
 	try:
@@ -23,18 +22,14 @@ def fix_file(filepath: Path) -> bool:
 		]
         
         new_content = content
-		# Combine all keys into a single regex for efficiency
-		# We look for any of these keys at the start of a line, regardless of case,
-		# and replace them with the correct capitalization.
-		keys_pattern = '|'.join(standard_keys)
 		
 		# Note: Removing the 'i' flag for strictly matching the standard would be counter-productive
 		# for a 'fix' script whose job is to correct lowercase keys.
-		# However, per review, we should be careful. We use MULTILINE.
 		# We will iterate to ensure exact replacement of the key part only.
         for key in standard_keys:
+	        # Case-sensitive check first to avoid unnecessary changes
             new_content = re.sub(
-		            f'^{key}=',  # Case-sensitive check first to avoid unnecessary changes
+		            f'^{key}=',
                 f'{key}=',
 		            new_content,
 		            flags = re.MULTILINE
@@ -64,7 +59,7 @@ def main():
     if not USER_APPS_DIR.exists():
 	    logger.error(f"Directory not found: {USER_APPS_DIR}")
         return
-    
+
     logger.info(f"Scanning {USER_APPS_DIR} for .desktop files to fix...")
     fixed_count = 0
     total_count = 0

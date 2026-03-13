@@ -1,18 +1,19 @@
 import json
 import logging
 import time
-from typing import Dict
-from typing import Optional
+from typing import Dict, Optional
 
 import requests
 
-from config import CATEGORIZATION_PROMPT
-from config import DEFAULT_CATEGORIES
-from config import GEMINI_API_KEY
-from config import GEMINI_API_URL
-from config import MAX_RETRIES
-from config import MODEL_NAME
-from config import TIMEOUT
+from config import (
+    GEMINI_API_KEY,
+    GEMINI_API_URL,
+    MODEL_NAME,
+    DEFAULT_CATEGORIES,
+    MAX_RETRIES,
+    TIMEOUT,
+    CATEGORIZATION_PROMPT
+)
 from parser import DesktopEntry
 
 logger = logging.getLogger(__name__)

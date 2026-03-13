@@ -9,13 +9,11 @@ import sys
 
 from categorizer import AppCategorizer
 from categorizer import GEMINI_AVAILABLE
-from config import DEFAULT_CATEGORIES
+from config import DEFAULT_CATEGORIES, REVERSE_CATEGORY_MAPPING, WALKER_MENUS_DIR
 from config import GEMINI_API_KEY
-from config import REVERSE_CATEGORY_MAPPING
-from config import WALKER_MENUS_DIR
-from menu_generator import MenuGenerator
 from parser import DesktopFileParser
 from writer import DesktopFileWriter
+from menu_generator import MenuGenerator
 
 logging.basicConfig(
     level=logging.INFO,
@@ -151,22 +149,22 @@ def cmd_menus(args):
     uncategorized_count = 0
     for filename, entry in entries.items():
         if not entry.categories:
-	        uncategorized_count += 1
+            uncategorized_count += 1
             continue
         # Map freedesktop categories back to our categories
         cat = _map_desktop_category(entry.categories, filename)
         if cat:
             categorized[filename] = cat
         else:
-	        uncategorized_count += 1
+            uncategorized_count += 1
 
     if not categorized:
         logger.error("No categorized apps found. Run 'categorize --apply' first.")
         return 1
-    
+
     if uncategorized_count > 0:
-	    logger.warning(f"{uncategorized_count} applications are uncategorized and will be missing from menus.")
-	    print(f"Suggestion: Run './catwalker categorize --apply' to include them.")
+        logger.warning(f"{uncategorized_count} applications are uncategorized and will be missing from menus.")
+        print(f"Suggestion: Run './catwalker categorize --apply' to include them.")
 
     print(f"\nFound {len(categorized)} categorized applications")
 
@@ -176,15 +174,15 @@ def cmd_menus(args):
         gen.generate(categorized, entries, dry_run=True)
         print("\nUse without --dry-run to actually generate files")
         return 0
-    
+
     if gen.generate(categorized, entries):
-	    print(f"\n{'=' * 70}")
-	    print(f"✓ Menu files generated in {WALKER_MENUS_DIR}")
-	    print("✓ Walker configuration updated")
-	    print("\nRestart Walker to see changes:")
-	    print("  killall walker && walker &")
-	    print(f"{'=' * 70}")
-	    return 0
+        print(f"\n{'=' * 70}")
+        print(f"✓ Menu files generated in {WALKER_MENUS_DIR}")
+        print("✓ Walker configuration updated")
+        print("\nRestart Walker to see changes:")
+        print("  killall walker && walker &")
+        print(f"{'=' * 70}")
+        return 0
     return 1
 
 
@@ -195,7 +193,7 @@ def _map_desktop_category(categories: list, filename: str = "") -> str:
             return REVERSE_CATEGORY_MAPPING[cat]
     
     if filename:
-	    logger.debug(f"No matching internal category for {filename} (Categories: {', '.join(categories)})")
+        logger.debug(f"No matching internal category for {filename} (Categories: {', '.join(categories)})")
     return None
 
 
@@ -316,7 +314,7 @@ Examples:
     )
 
     # Handle --generate-completions before subparsers
-    parser.add_argument('--generate-completions', action = 'store_true', help = 'Generate bash completion script')
+    parser.add_argument('--generate-completions', action='store_true', help='Generate bash completion script')
     if '--generate-completions' in sys.argv:
         print(generate_bash_completion())
         return 0
