@@ -1,9 +1,34 @@
 #!/bin/bash
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# CatWalker Wrapper Script
+# Ensures that the virtual environment is used even when calling from outside.
 
-# Load user environment (API keys etc.)
-[ -f ~/.bashrc ] && source ~/.bashrc 2>/dev/null
-[ -f ~/.bash_profile ] && source ~/.bash_profile 2>/dev/null
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 
-source "$SCRIPT_DIR/.venv/bin/activate"
-python "$SCRIPT_DIR/main.py" "$@"
+# 1. Determine virtual environment location
+VENV_PATH="${CATWALKER_VENV:-$SCRIPT_DIR/.venv}"
+
+# 2. Check and activate virtual environment
+if [ -d "$VENV_PATH" ]; then
+    source "$VENV_PATH/bin/activate"
+else
+    # Fallback to local 'venv' or 'env' directories
+    if [ -d "$SCRIPT_DIR/venv" ]; then
+        source "$SCRIPT_DIR/venv/bin/activate"
+    elif [ -d "$SCRIPT_DIR/env" ]; then
+        source "$SCRIPT_DIR/env/bin/activate"
+    else
+        echo "Warning: No virtual environment found in $VENV_PATH. Using system Python." >&2
+    fi
+fi
+
+# 3. Ensure GEMINI_API_KEY is available (if not exported globally)
+# Note: Users should ideally export this in their .bashrc or .zshrc
+if [ -z "$GEMINI_API_KEY" ]; then
+    # Optional: minimal fallback to local .env if present
+    if [ -f "$SCRIPT_DIR/.env" ]; then
+        export $(grep -v '^#' "$SCRIPT_DIR/.env" | xargs)
+    fi
+fi
+
+# 4. Execute the Python application
+exec python3 "$SCRIPT_DIR/main.py" "$@"

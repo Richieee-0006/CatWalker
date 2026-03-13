@@ -1,16 +1,13 @@
-import shutil
 import logging
-import re
-from pathlib import Path
-from typing import Dict, List
+import shutil
 from datetime import datetime
+from pathlib import Path
+from typing import Dict
+from typing import List
 
-from config import (
-    SYSTEM_APPS_DIR,
-    USER_APPS_DIR,
-    BACKUP_DIR,
-    CATEGORY_MAPPINGS
-)
+from config import BACKUP_DIR
+from config import CATEGORY_MAPPINGS
+from config import USER_APPS_DIR
 from parser import DesktopEntry
 
 logging.basicConfig(level=logging.INFO)
@@ -59,6 +56,7 @@ class DesktopFileWriter:
         """
         try:
             content = filepath.read_text(encoding='utf-8')
+            lines = content.splitlines()
             
             # Standard keys to capitalize
             standard_keys = [
@@ -67,33 +65,42 @@ class DesktopFileWriter:
                 'StartupNotify', 'StartupWMClass', 'MimeType', 'Path',
                 'Actions', 'OnlyShowIn', 'NotShowIn', 'Hidden', 'TryExec'
             ]
+            key_map = {k.lower(): k for k in standard_keys}
             
-            new_content = content
-            for key in standard_keys:
-                # Replace lowercase key at start of line
-                new_content = re.sub(
-                    f'(?im)^{key}=',
-                    f'{key}=',
-                    new_content
-                )
-
             categories_str = ";".join(categories) + ";"
-
-            # Replace existing Categories= line
-            new_content, count = re.subn(
-                r'(?im)^Categories=.*$',
-                f'Categories={categories_str}',
-                new_content
-            )
-
-            # If no Categories= line existed, add it after [Desktop Entry]
-            if count == 0:
-                new_content = re.sub(
-                    r'(\[Desktop Entry\])',
-                    f'\\1\nCategories={categories_str}',
-                    new_content
-                )
-
+            new_lines = []
+            categories_updated = False
+            
+            for line in lines:
+	            if '=' in line and not line.startswith('#') and not line.startswith('['):
+		            key, value = line.split('=', 1)
+		            key_stripped = key.strip()
+		            key_lower = key_stripped.lower()
+		            
+		            if key_lower == 'categories':
+			            new_lines.append(f"Categories={categories_str}")
+			            categories_updated = True
+			            continue
+		            
+		            if key_lower in key_map:
+			            key = key_map[key_lower]
+		            
+		            new_lines.append(f"{key}={value}")
+	            else:
+		            new_lines.append(line)
+            
+            if not categories_updated:
+	            # Add Categories after [Desktop Entry]
+	            final_lines = []
+	            inserted = False
+	            for line in new_lines:
+		            final_lines.append(line)
+		            if line.strip() == '[Desktop Entry]' and not inserted:
+			            final_lines.append(f"Categories={categories_str}")
+			            inserted = True
+	            new_lines = final_lines
+            
+            new_content = '\n'.join(new_lines) + ('\n' if content.endswith('\n') else '')
             filepath.write_text(new_content, encoding='utf-8')
             logger.debug(f"Updated categories in {filepath.name}")
             return True

@@ -1,16 +1,14 @@
-# Virtual environment
-.venv/
-venv/
-env/
-ENV/
-
 # Python
 __pycache__/
 *.py[cod]
 *$py.class
 *.so
 .Python
-*.pyc
+
+# Virtual environment
+.venv/
+venv/
+env/
 
 # IDE
 .idea/
@@ -23,8 +21,8 @@ __pycache__/
 .DS_Store
 Thumbs.db
 
-# Backups (from CatWalker)
+# Project specific
 .local/
-
-# Test output
 console-out.txt
+catwalker_apps.toml
+apps_*.toml
