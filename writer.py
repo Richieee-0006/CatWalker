@@ -72,33 +72,33 @@ class DesktopFileWriter:
             categories_updated = False
             
             for line in lines:
-	            if '=' in line and not line.startswith('#') and not line.startswith('['):
-		            key, value = line.split('=', 1)
-		            key_stripped = key.strip()
-		            key_lower = key_stripped.lower()
-		            
-		            if key_lower == 'categories':
-			            new_lines.append(f"Categories={categories_str}")
-			            categories_updated = True
-			            continue
-		            
-		            if key_lower in key_map:
-			            key = key_map[key_lower]
-		            
-		            new_lines.append(f"{key}={value}")
-	            else:
-		            new_lines.append(line)
+                if '=' in line and not line.startswith('#') and not line.startswith('['):
+                    key, value = line.split('=', 1)
+                    key_stripped = key.strip()
+                    key_lower = key_stripped.lower()
+                    
+                    if key_lower == 'categories':
+                        new_lines.append(f"Categories={categories_str}")
+                        categories_updated = True
+                        continue
+                    
+                    if key_lower in key_map:
+                        key = key_map[key_lower]
+                    
+                    new_lines.append(f"{key}={value}")
+                else:
+                    new_lines.append(line)
             
             if not categories_updated:
-	            # Add Categories after [Desktop Entry]
-	            final_lines = []
-	            inserted = False
-	            for line in new_lines:
-		            final_lines.append(line)
-		            if line.strip() == '[Desktop Entry]' and not inserted:
-			            final_lines.append(f"Categories={categories_str}")
-			            inserted = True
-	            new_lines = final_lines
+                # Add Categories after [Desktop Entry]
+                final_lines = []
+                inserted = False
+                for line in new_lines:
+                    final_lines.append(line)
+                    if line.strip() == '[Desktop Entry]' and not inserted:
+                        final_lines.append(f"Categories={categories_str}")
+                        inserted = True
+                new_lines = final_lines
             
             new_content = '\n'.join(new_lines) + ('\n' if content.endswith('\n') else '')
             filepath.write_text(new_content, encoding='utf-8')

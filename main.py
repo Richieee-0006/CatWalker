@@ -6,14 +6,17 @@ CatWalker - Automatic application categorization for Walker using LLM
 import argparse
 import logging
 import sys
+import os
+import shutil
+import subprocess
 
 from categorizer import AppCategorizer
-from categorizer import GEMINI_AVAILABLE
 from config import DEFAULT_CATEGORIES, REVERSE_CATEGORY_MAPPING, WALKER_MENUS_DIR
 from config import GEMINI_API_KEY
 from parser import DesktopFileParser
 from writer import DesktopFileWriter
 from menu_generator import MenuGenerator
+from db_sync import DatabaseSynchronizer
 
 logging.basicConfig(
     level=logging.INFO,
@@ -57,12 +60,8 @@ def cmd_scan(args):
 
 def cmd_categorize(args):
     """Categorize applications using LLM"""
-    if not GEMINI_AVAILABLE:
-        logger.error("google-genai not installed. Install with: pip install google-genai")
-        return 1
-
     if not GEMINI_API_KEY:
-        logger.error("GEMINI_API_KEY not set. Set it with: export GEMINI_API_KEY='your-api-key'")
+        logger.error("GEMINI_API_KEY not set. Please set it with: export GEMINI_API_KEY='your-api-key'")
         return 1
 
     parser = DesktopFileParser()
@@ -71,8 +70,14 @@ def cmd_categorize(args):
     if args.recategorize:
         logger.info(f"Re-categorizing all {len(entries)} applications")
     else:
-        entries = parser.get_uncategorized()
-        logger.info(f"Categorizing {len(entries)} uncategorized applications")
+        # Categorize if it has NO categories OR it's only in system directory
+        # (meaning we haven't processed it and overridden it in user dir yet)
+        uncategorized = parser.get_uncategorized()
+        system_only = parser.get_system_only()
+        
+        # Merge them
+        entries = {**uncategorized, **system_only}
+        logger.info(f"Categorizing {len(entries)} uncategorized applications ({len(uncategorized)} empty, {len(system_only)} system-only)")
 
     if not entries:
         logger.info("No applications to categorize")
@@ -102,10 +107,10 @@ def cmd_categorize(args):
         print(f"  {old_cats} → {category}")
 
     # Apply .desktop file changes
-    writer = DesktopFileWriter(dry_run=not args.apply)
+    writer = DesktopFileWriter(dry_run=args.dry_run)
 
     print(f"\n{'=' * 70}")
-    if args.apply:
+    if not args.dry_run:
         print("Applying changes...")
         confirm = input("\nProceed? [y/N] ")
         if confirm.lower() != 'y':
@@ -113,7 +118,6 @@ def cmd_categorize(args):
             return 0
     else:
         print("DRY RUN - No changes will be made")
-        print("Use --apply to actually modify files")
 
     print(f"{'=' * 70}\n")
 
@@ -122,10 +126,10 @@ def cmd_categorize(args):
 
     print(f"\n{'=' * 70}")
     print(f"Complete: {success_count}/{len(results)} files processed")
-    if args.apply:
+    if not args.dry_run:
         print(f"Backup saved: {writer.backup_timestamp}")
-        print("\nRestart Walker to see changes:")
-        print("  killall walker && walker &")
+        print("✓ Restarting services...")
+        _restart_walker_services()
     print(f"{'=' * 70}")
 
     return 0
@@ -137,7 +141,7 @@ def cmd_menus(args):
         gen = MenuGenerator()
         gen.cleanup()
         print("✓ Removed CatWalker menu files")
-        print("Restart Walker: killall walker && walker &")
+        _restart_walker_services()
         return 0
 
     # We need all categorized apps - scan and use existing categories
@@ -162,11 +166,12 @@ def cmd_menus(args):
         logger.error("No categorized apps found. Run 'categorize --apply' first.")
         return 1
 
-    if uncategorized_count > 0:
+    if uncategorized_count > 0 and not args.quiet:
         logger.warning(f"{uncategorized_count} applications are uncategorized and will be missing from menus.")
         print(f"Suggestion: Run './catwalker categorize --apply' to include them.")
 
-    print(f"\nFound {len(categorized)} categorized applications")
+    if not args.quiet:
+        print(f"\nFound {len(categorized)} categorized applications")
 
     gen = MenuGenerator()
 
@@ -176,18 +181,52 @@ def cmd_menus(args):
         return 0
 
     if gen.generate(categorized, entries):
-        print(f"\n{'=' * 70}")
-        print(f"✓ Menu files generated in {WALKER_MENUS_DIR}")
-        print("✓ Walker configuration updated")
-        print("\nRestart Walker to see changes:")
-        print("  killall walker && walker &")
-        print(f"{'=' * 70}")
+        if not args.quiet:
+            print(f"\n{'=' * 70}")
+            print(f"✓ Menu files generated in {WALKER_MENUS_DIR}")
+            print("✓ Walker configuration updated")
+            print("✓ Restarting services...")
+            print(f"{'=' * 70}")
+            # Only restart services if not quiet (manual run)
+            _restart_walker_services()
+        
+        # Automatically sync to DB as well
+        try:
+            db = DatabaseSynchronizer()
+            if db.init_db():
+                usage_data = gen._get_usage_data()
+                db.sync(entries, usage_data, categorized)
+        except Exception as e:
+            logger.debug(f"DB sync failed during menu refresh: {e}")
+            
         return 0
     return 1
 
 
+def _restart_walker_services():
+    """Restarts Walker and Elephant services using omarchy-restart-walker"""
+    try:
+        # Check if omarchy-restart-walker is in PATH
+        # We also try to use the direct path we discovered earlier
+        restart_cmd = shutil.which("omarchy-restart-walker") or "/home/richieee/.local/share/omarchy/bin/omarchy-restart-walker"
+        if os.path.exists(restart_cmd):
+            subprocess.run([restart_cmd], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            return True
+        else:
+            # Fallback to manual kill if script is missing
+            subprocess.run(["killall", "walker", "elephant"], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            return True
+    except Exception as e:
+        logger.debug(f"Failed to restart services: {e}")
+        return False
+
+
 def _map_desktop_category(categories: list, filename: str = "") -> str:
     """Map freedesktop.org categories to CatWalker categories"""
+    # Prioritize Browser if WebBrowser is present
+    if "WebBrowser" in categories:
+        return "Browser"
+
     for cat in categories:
         if cat in REVERSE_CATEGORY_MAPPING:
             return REVERSE_CATEGORY_MAPPING[cat]
@@ -242,6 +281,30 @@ def cmd_categories(args):
     print()
 
 
+def cmd_sync_db(args):
+    """Sync data to PostgreSQL"""
+    parser = DesktopFileParser()
+    entries = parser.scan_all()
+    
+    # Map categorized apps
+    categorized = {}
+    for filename, entry in entries.items():
+        cat = _map_desktop_category(entry.categories, filename)
+        if cat:
+            categorized[filename] = cat
+
+    gen = MenuGenerator()
+    usage_data = gen._get_usage_data()
+
+    db = DatabaseSynchronizer()
+    if db.init_db():
+        if db.sync(entries, usage_data, categorized):
+            if not getattr(args, 'quiet', False):
+                print("✓ PostgreSQL sync complete")
+            return 0
+    return 1
+
+
 def generate_bash_completion():
     """Generate bash completion script for catwalker"""
     completion = '''# bash completion for catwalker
@@ -270,7 +333,7 @@ _catwalker_completion() {
             COMPREPLY=( $(compgen -W "$scan_opts" -- "$cur") )
             ;;
         categorize)
-            local cat_opts="-a --apply -r --recategorize -l --limit -b --batch-size -h --help"
+            local cat_opts="--dry-run -r --recategorize -l --limit -b --batch-size -h --help"
             COMPREPLY=( $(compgen -W "$cat_opts" -- "$cur") )
             ;;
         menus)
@@ -303,8 +366,8 @@ def main():
 Examples:
   %(prog)s scan                          # List all applications
   %(prog)s scan --uncategorized          # List uncategorized apps
-  %(prog)s categorize                    # Categorize (dry-run)
-  %(prog)s categorize --apply            # Apply to .desktop files
+  %(prog)s categorize                    # Categorize applications
+  %(prog)s categorize --dry-run          # Preview changes
   %(prog)s categorize --limit 10         # Test with 10 apps
   %(prog)s menus                         # Generate Walker menu files
   %(prog)s menus --dry-run               # Preview menu generation
@@ -329,15 +392,16 @@ Examples:
 
     # Categorize
     cat_parser = subparsers.add_parser('categorize', help='Categorize applications via LLM')
-    cat_parser.add_argument('--apply', '-a', action='store_true', help='Apply changes')
+    cat_parser.add_argument('--dry-run', action='store_true', help='Preview changes without applying')
     cat_parser.add_argument('--recategorize', '-r', action='store_true')
     cat_parser.add_argument('--limit', '-l', type=int)
-    cat_parser.add_argument('--batch-size', '-b', type=int, default=50)
+    cat_parser.add_argument('--batch-size', '-b', type=int, default=30)
 
     # Menus
     menu_parser = subparsers.add_parser('menus', help='Generate Elephant menu files for Walker')
     menu_parser.add_argument('--dry-run', action='store_true', help='Preview without writing')
     menu_parser.add_argument('--clean', action='store_true', help='Remove generated menu files')
+    menu_parser.add_argument('--quiet', '-q', action='store_true', help='Minimal output')
 
     # Rollback
     rollback_parser = subparsers.add_parser('rollback', help='Rollback changes')
@@ -346,6 +410,10 @@ Examples:
 
     # Categories
     subparsers.add_parser('categories', help='List available categories')
+
+    # Sync DB
+    sync_parser = subparsers.add_parser('sync-db', help='Sync data to PostgreSQL')
+    sync_parser.add_argument('--quiet', '-q', action='store_true', help='Minimal output')
 
     # Add help manually to avoid conflict with --generate-completions
     parser.add_argument('-h', '--help', action='help', help='Show this help message')
@@ -362,6 +430,7 @@ Examples:
         'menus': cmd_menus,
         'rollback': cmd_rollback,
         'categories': cmd_categories,
+        'sync-db': cmd_sync_db,
     }
 
     return commands[args.command](args)

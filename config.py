@@ -9,8 +9,18 @@ GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model
 SYSTEM_APPS_DIR = Path("/usr/share/applications")
 USER_APPS_DIR = Path(os.getenv("XDG_DATA_HOME", Path.home() / ".local/share")) / "applications"
 BACKUP_DIR = Path.home() / ".local/share/catwalker/backups"
+DB_PATH = Path.home() / ".local/share/catwalker/apps.db"
 WALKER_CONFIG_PATH = Path.home() / ".config/walker/config.toml"
 WALKER_MENUS_DIR = Path.home() / ".config/elephant/menus"
+
+# Database Configuration (PostgreSQL)
+DB_CONFIG = {
+    "dbname": "catwalker",
+    "user": "postgres",
+    "password": "",  # Empty if using peer/trust on localhost
+    "host": "127.0.0.1",
+    "port": "5432"
+}
 
 # Ensure directories exist
 USER_APPS_DIR.mkdir(parents=True, exist_ok=True)
@@ -50,6 +60,7 @@ CATEGORY_MAPPINGS = {
 # Reverse mapping: standard .desktop categories -> internal categories
 # Ensures that applications categorized by system or other tools are correctly recognized
 REVERSE_CATEGORY_MAPPING = {
+    "WebBrowser": "Browser",
     "Development": "Development",
     "System": "System",
     "AudioVideo": "Media",
@@ -58,7 +69,6 @@ REVERSE_CATEGORY_MAPPING = {
     "Office": "Office",
     "Game": "Games",
     "Network": "Internet",
-    "WebBrowser": "Browser",
     "Graphics": "Graphics",
     "Utility": "Utility",
     "Settings": "Settings",
@@ -70,7 +80,7 @@ REVERSE_CATEGORY_MAPPING = {
 # compared to newer experimental models.
 MODEL_NAME = "gemma-3-27b-it" 
 MAX_RETRIES = 3
-TIMEOUT = 30
+TIMEOUT = 120
 
 # Prompt template
 CATEGORIZATION_PROMPT = """You are an expert at categorizing Linux desktop applications.

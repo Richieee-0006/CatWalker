@@ -5,6 +5,7 @@ Automatická kategorizace Linuxových aplikací pro Walker/Elephant pomocí LLM.
 ## Features
 
 - 🤖 **Inteligentní kategorizace** - Gemma 3 27B přes Google AI REST API
+- 📊 **Automatické řazení podle použití** - Automaticky řadí aplikace i kategorie v menu podle historie Walkeru
 - 🔒 **Bezpečné** - nikdy nemodifikuje systémové soubory, vše v `~/.local/share/applications/`
 - 💾 **Automatický backup** - před každou změnou vytvoří zálohu
 - 🔄 **Rollback** - snadné vrácení změn

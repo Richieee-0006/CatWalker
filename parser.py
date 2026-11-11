@@ -123,6 +123,14 @@ class DesktopFileParser:
             if category in entry.categories
         }
 
+    def get_system_only(self) -> Dict[str, DesktopEntry]:
+        """Get applications that are in system directory but NOT in user directory"""
+        return {
+            filename: entry
+            for filename, entry in self.entries.items()
+            if not (USER_APPS_DIR / filename).exists()
+        }
+
 
 def main():
     """Test parser"""
